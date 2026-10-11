@@ -1,0 +1,23 @@
+# Uptime check for https://tryfinglish.com every 5 minutes. Public repo, so GitHub Actions minutes are free.
+# A failed run emails the account that last edited the cron line. Each check must fail twice, 30 seconds apart, to fail the run.
+# Secret SUPABASE_ANON_KEY is the PUBLIC anon key (the same value the website ships to every browser).
+name: uptime
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run checks
+        env:
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: bash scripts/check.sh
