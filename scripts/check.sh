@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # scripts/uptime/check.sh: the production health check run by .github/workflows/uptime.yml (also fine to run by hand).
+# The SCHEDULED run uses a copy of this file in the public repo armeen55/finglish-uptime. This file is the source:
+# after changing it, copy it there by hand, or the schedule keeps running the old checks.
 #
 #   SUPABASE_ANON_KEY=... bash scripts/uptime/check.sh
 #
@@ -9,14 +11,20 @@
 #   GET  /sitemap.xml           200
 #   GET  /llms.txt              200
 #   GET  Supabase auth health   200 (needs the PUBLIC anon key in an `apikey` header)
+#   GET  /api/tools/status      200 and the JSON says "translate":true (the translator's switch is on and its key is set;
+#                               one light read, no model call. NEVER POST to a tool route here: those cost money)
+#   GET  /api/billing/config    200 and the JSON has an "enabled" key (true or false both pass: the check is that the
+#                               billing route answers, not which way the switch is)
 #   POST /api/email-signup {}   400 (route + validation are up; the body is invalid so no row is written)
 #   POST /api/client-error {}   200 (route is up; an empty report is acknowledged and ignored)
 # A failed check is retried ONCE after RETRY_DELAY seconds; only a check that fails twice fails the run.
 # Secrets are never printed: the key goes to curl through a config file descriptor, not argv, and no response body is echoed.
 set -u
 
-BASE_URL="${UPTIME_BASE_URL:-https://tryfinglish.com}"
-SUPABASE_URL="${UPTIME_SUPABASE_URL:-https://qzwyvpqrvumuqkbmdxho.supabase.co}"
+BASE_URL="${UPTIME_BASE_URL:-https://learnfinglish.com}"
+# The auth custom domain every browser request goes through (NEXT_PUBLIC_SUPABASE_URL on Production), not the raw project host:
+# a broken CNAME or certificate there takes sign-in down while the raw host still answers.
+SUPABASE_URL="${UPTIME_SUPABASE_URL:-https://auth.tryfinglish.com}"
 RETRY_DELAY="${UPTIME_RETRY_DELAY:-30}"
 CONNECT_TIMEOUT=10
 MAX_TIME=20
@@ -32,7 +40,7 @@ if [ -z "${SUPABASE_ANON_KEY:-}" ]; then
 fi
 
 # Check ids, in order. Each is defined in run_check below.
-CHECKS=(home robots sitemap llms supabase_auth email_signup client_error)
+CHECKS=(home robots sitemap llms supabase_auth tools_status billing_config email_signup client_error)
 
 # run_check <id>: prints one line, returns 0 when the check passes.
 run_check() {
@@ -41,7 +49,7 @@ run_check() {
     home)
       want=200; url="$BASE_URL/"
       code="$(curl -sS -L --connect-timeout $CONNECT_TIMEOUT --max-time $MAX_TIME -A "$UA" -o "$BODY_FILE" -w '%{http_code}' "$url" 2>/dev/null)" || code="000"
-      if [ "$code" = "$want" ] && ! grep -q "Finglish" "$BODY_FILE"; then echo "GET / answered 200 but the page does not contain \"Finglish\""; return 1; fi
+      if [ "$code" = "$want" ] && ! grep -q "Finglish" "$BODY_FILE"; then echo "FAIL $id: GET / answered 200 but the page does not contain \"Finglish\""; return 1; fi
       ;;
     robots)  want=200; url="$BASE_URL/robots.txt";  code="$(curl -sS -L --connect-timeout $CONNECT_TIMEOUT --max-time $MAX_TIME -A "$UA" -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)" || code="000" ;;
     sitemap) want=200; url="$BASE_URL/sitemap.xml"; code="$(curl -sS -L --connect-timeout $CONNECT_TIMEOUT --max-time $MAX_TIME -A "$UA" -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)" || code="000" ;;
@@ -51,6 +59,16 @@ run_check() {
       # The key rides in a curl config read from a descriptor, so it never appears in argv or the log.
       code="$(curl -sS --connect-timeout $CONNECT_TIMEOUT --max-time $MAX_TIME -A "$UA" -o /dev/null -w '%{http_code}' \
         --config <(printf 'header = "apikey: %s"\n' "$SUPABASE_ANON_KEY") "$url" 2>/dev/null)" || code="000"
+      ;;
+    tools_status)
+      want=200; url="$BASE_URL/api/tools/status"
+      code="$(curl -sS --connect-timeout $CONNECT_TIMEOUT --max-time $MAX_TIME -A "$UA" -o "$BODY_FILE" -w '%{http_code}' "$url" 2>/dev/null)" || code="000"
+      if [ "$code" = "$want" ] && ! grep -Eq '"translate"[[:space:]]*:[[:space:]]*true' "$BODY_FILE"; then echo "FAIL $id: answered 200 but the translator is off (no \"translate\":true in the answer)"; return 1; fi
+      ;;
+    billing_config)
+      want=200; url="$BASE_URL/api/billing/config"
+      code="$(curl -sS --connect-timeout $CONNECT_TIMEOUT --max-time $MAX_TIME -A "$UA" -o "$BODY_FILE" -w '%{http_code}' "$url" 2>/dev/null)" || code="000"
+      if [ "$code" = "$want" ] && ! grep -Eq '"enabled"[[:space:]]*:[[:space:]]*(true|false)' "$BODY_FILE"; then echo "FAIL $id: answered 200 but the answer has no \"enabled\" key"; return 1; fi
       ;;
     email_signup)
       want=400; url="$BASE_URL/api/email-signup"
