@@ -10,6 +10,8 @@
 #   GET  /robots.txt            200
 #   GET  /sitemap.xml           200
 #   GET  /llms.txt              200
+#   GET  /.well-known/apple-developer-merchantid-domain-association   200 with NO redirect (Apple reads this file to
+#                               verify the domain; without it Apple Pay opens in a pop-up that Safari blocks)
 #   GET  Supabase auth health   200 (needs the PUBLIC anon key in an `apikey` header)
 #   GET  /api/tools/status      200 and the JSON says "translate":true (the translator's switch is on and its key is set;
 #                               one light read, no model call. NEVER POST to a tool route here: those cost money)
@@ -40,7 +42,7 @@ if [ -z "${SUPABASE_ANON_KEY:-}" ]; then
 fi
 
 # Check ids, in order. Each is defined in run_check below.
-CHECKS=(home robots sitemap llms supabase_auth tools_status billing_config email_signup client_error)
+CHECKS=(home robots sitemap llms apple_pay_file supabase_auth tools_status billing_config email_signup client_error)
 
 # run_check <id>: prints one line, returns 0 when the check passes.
 run_check() {
@@ -54,6 +56,7 @@ run_check() {
     robots)  want=200; url="$BASE_URL/robots.txt";  code="$(curl -sS -L --connect-timeout $CONNECT_TIMEOUT --max-time $MAX_TIME -A "$UA" -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)" || code="000" ;;
     sitemap) want=200; url="$BASE_URL/sitemap.xml"; code="$(curl -sS -L --connect-timeout $CONNECT_TIMEOUT --max-time $MAX_TIME -A "$UA" -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)" || code="000" ;;
     llms)    want=200; url="$BASE_URL/llms.txt";    code="$(curl -sS -L --connect-timeout $CONNECT_TIMEOUT --max-time $MAX_TIME -A "$UA" -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)" || code="000" ;;
+    apple_pay_file) want=200; url="$BASE_URL/.well-known/apple-developer-merchantid-domain-association"; code="$(curl -sS --connect-timeout $CONNECT_TIMEOUT --max-time $MAX_TIME -A "$UA" -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)" || code="000" ;;
     supabase_auth)
       want=200; url="$SUPABASE_URL/auth/v1/health"
       # The key rides in a curl config read from a descriptor, so it never appears in argv or the log.
