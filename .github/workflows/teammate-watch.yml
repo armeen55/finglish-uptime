@@ -1,0 +1,20 @@
+# Watches Armeen's Finglish teammate from outside his Mac. The teammate's 2-hour routine sets the repository
+# variable TEAMMATE_HEARTBEAT to the time of each run. If the last one is older than 4 hours, this job fails,
+# and GitHub emails the repo owner about the failed run. Added Nov 25 2026 ("making sure that hook never dies").
+name: teammate-watch
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Teammate checked in within 4 hours
+        env:
+          BEAT: ${{ vars.TEAMMATE_HEARTBEAT }}
+        run: |
+          if [ -z "$BEAT" ]; then echo "No heartbeat recorded yet"; exit 1; fi
+          age=$(( $(date -u +%s) - $(date -u -d "$BEAT" +%s) ))
+          echo "Last teammate run: $BEAT ($(( age / 60 )) minutes ago)"
+          if [ "$age" -gt 14400 ]; then echo "Your Finglish teammate has not run for over 4 hours. Open Claude on the Mac and check the Scheduled tasks."; exit 1; fi
